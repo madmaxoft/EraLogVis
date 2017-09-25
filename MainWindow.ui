@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>950</width>
+    <height>608</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>EraLogVis</string>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QHBoxLayout" name="horizontalLayout">
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item>
+     <widget class="QSplitter" name="splitHorz">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <widget class="QTreeView" name="tvSources">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="editTriggers">
+        <set>QAbstractItemView::NoEditTriggers</set>
+       </property>
+       <property name="showDropIndicator" stdset="0">
+        <bool>false</bool>
+       </property>
+       <property name="verticalScrollMode">
+        <enum>QAbstractItemView::ScrollPerPixel</enum>
+       </property>
+       <property name="rootIsDecorated">
+        <bool>true</bool>
+       </property>
+       <property name="uniformRowHeights">
+        <bool>true</bool>
+       </property>
+       <attribute name="headerVisible">
+        <bool>false</bool>
+       </attribute>
+      </widget>
+      <widget class="MessageView" name="lvMessages">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+         <horstretch>10</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="frameShape">
+        <enum>QFrame::StyledPanel</enum>
+       </property>
+       <property name="frameShadow">
+        <enum>QFrame::Sunken</enum>
+       </property>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>950</width>
+     <height>18</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menu_File">
+    <property name="title">
+     <string>&amp;File</string>
+    </property>
+    <addaction name="actFileOpenFile"/>
+    <addaction name="actFileOpenFolder"/>
+    <addaction name="separator"/>
+    <addaction name="actFileExit"/>
+   </widget>
+   <widget class="QMenu" name="menu_Messages">
+    <property name="title">
+     <string>&amp;Messages</string>
+    </property>
+    <addaction name="actMessagesFind"/>
+    <addaction name="actMessagesFindNext"/>
+    <addaction name="separator"/>
+    <addaction name="actMessagesFilter"/>
+    <addaction name="separator"/>
+    <addaction name="actLogLevelFatal"/>
+    <addaction name="actLogLevelCritical"/>
+    <addaction name="actLogLevelError"/>
+    <addaction name="actLogLevelWarning"/>
+    <addaction name="actLogLevelInformation"/>
+    <addaction name="actLogLevelDebug"/>
+    <addaction name="actLogLevelTrace"/>
+    <addaction name="separator"/>
+    <addaction name="actLogLevelStatus"/>
+    <addaction name="separator"/>
+    <addaction name="actLogLevelUnknown"/>
+   </widget>
+   <addaction name="menu_File"/>
+   <addaction name="menu_Messages"/>
+  </widget>
+  <widget class="QToolBar" name="tbFile">
+   <property name="toolButtonStyle">
+    <enum>Qt::ToolButtonIconOnly</enum>
+   </property>
+   <property name="floatable">
+    <bool>false</bool>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>LeftToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actFileOpenFile"/>
+   <addaction name="actFileOpenFolder"/>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <widget class="QToolBar" name="tbLogLevelFilter">
+   <property name="windowTitle">
+    <string>toolBar</string>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>LeftToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actMessagesFind"/>
+   <addaction name="actMessagesFindNext"/>
+   <addaction name="separator"/>
+   <addaction name="actMessagesFilter"/>
+   <addaction name="separator"/>
+   <addaction name="actLogLevelFatal"/>
+   <addaction name="actLogLevelCritical"/>
+   <addaction name="actLogLevelError"/>
+   <addaction name="actLogLevelWarning"/>
+   <addaction name="actLogLevelInformation"/>
+   <addaction name="actLogLevelDebug"/>
+   <addaction name="actLogLevelTrace"/>
+   <addaction name="separator"/>
+   <addaction name="actLogLevelStatus"/>
+   <addaction name="separator"/>
+   <addaction name="actLogLevelUnknown"/>
+  </widget>
+  <action name="actFileOpenFile">
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/file-32.png</normaloff>:/file-32.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Open log file...</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O</string>
+   </property>
+  </action>
+  <action name="actFileExit">
+   <property name="text">
+    <string>E&amp;xit</string>
+   </property>
+  </action>
+  <action name="actFileOpenFolder">
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/newdirectory-32.png</normaloff>:/newdirectory-32.png</iconset>
+   </property>
+   <property name="text">
+    <string>Op&amp;en files in folder...</string>
+   </property>
+   <property name="toolTip">
+    <string>Open all files in a folder</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+E</string>
+   </property>
+  </action>
+  <action name="actMessagesFind">
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/filecontents-32.png</normaloff>:/filecontents-32.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Find...</string>
+   </property>
+   <property name="toolTip">
+    <string>Select next message containing specified text</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F</string>
+   </property>
+  </action>
+  <action name="actMessagesFindNext">
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/media-seek-forward-32.png</normaloff>:/media-seek-forward-32.png</iconset>
+   </property>
+   <property name="text">
+    <string>Find &amp;next</string>
+   </property>
+   <property name="toolTip">
+    <string>Selects the next message containing the specified text</string>
+   </property>
+   <property name="shortcut">
+    <string>F3</string>
+   </property>
+  </action>
+  <action name="actMessagesFilter">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/filter-32.png</normaloff>:/filter-32.png</iconset>
+   </property>
+   <property name="text">
+    <string>F&amp;ilter...</string>
+   </property>
+  </action>
+  <action name="actLogLevelFatal">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelFatal.png</normaloff>:/LogLevelFatal.png</iconset>
+   </property>
+   <property name="text">
+    <string>Fatal</string>
+   </property>
+  </action>
+  <action name="actLogLevelCritical">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelCritical.png</normaloff>:/LogLevelCritical.png</iconset>
+   </property>
+   <property name="text">
+    <string>Critical</string>
+   </property>
+  </action>
+  <action name="actLogLevelError">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelError.png</normaloff>:/LogLevelError.png</iconset>
+   </property>
+   <property name="text">
+    <string>Error</string>
+   </property>
+  </action>
+  <action name="actLogLevelWarning">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelWarning.png</normaloff>:/LogLevelWarning.png</iconset>
+   </property>
+   <property name="text">
+    <string>Warning</string>
+   </property>
+  </action>
+  <action name="actLogLevelInformation">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelInformation.png</normaloff>:/LogLevelInformation.png</iconset>
+   </property>
+   <property name="text">
+    <string>Information</string>
+   </property>
+  </action>
+  <action name="actLogLevelDebug">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelDebug.png</normaloff>:/LogLevelDebug.png</iconset>
+   </property>
+   <property name="text">
+    <string>Debug</string>
+   </property>
+  </action>
+  <action name="actLogLevelTrace">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelTrace.png</normaloff>:/LogLevelTrace.png</iconset>
+   </property>
+   <property name="text">
+    <string>Trace</string>
+   </property>
+  </action>
+  <action name="actLogLevelStatus">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelStatus.png</normaloff>:/LogLevelStatus.png</iconset>
+   </property>
+   <property name="text">
+    <string>Status</string>
+   </property>
+  </action>
+  <action name="actLogLevelUnknown">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="Resources/Resources.qrc">
+     <normaloff>:/LogLevelUnknown.png</normaloff>:/LogLevelUnknown.png</iconset>
+   </property>
+   <property name="text">
+    <string>Unknown</string>
+   </property>
+  </action>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <customwidgets>
+  <customwidget>
+   <class>MessageView</class>
+   <extends>QFrame</extends>
+   <header>MessageView.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources>
+  <include location="Resources/Resources.qrc"/>
+ </resources>
+ <connections>
+  <connection>
+   <sender>actFileExit</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>close()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>20</x>
+     <y>20</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>

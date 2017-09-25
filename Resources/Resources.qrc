@@ -1,0 +1,27 @@
+<RCC>
+    <qresource prefix="/">
+        <file>newdirectory-16.png</file>
+        <file>newdirectory-32.png</file>
+        <file>newdirectory-128.png</file>
+        <file>file-16.png</file>
+        <file>file-32.png</file>
+        <file>file-128.png</file>
+        <file>filecontents-16.png</file>
+        <file>filecontents-32.png</file>
+        <file>filecontents-128.png</file>
+        <file>filter-16.png</file>
+        <file>filter-32.png</file>
+        <file>filter-128.png</file>
+        <file>LogLevelCritical.png</file>
+        <file>LogLevelDebug.png</file>
+        <file>LogLevelError.png</file>
+        <file>LogLevelFatal.png</file>
+        <file>LogLevelInformation.png</file>
+        <file>LogLevelStatus.png</file>
+        <file>LogLevelTrace.png</file>
+        <file>LogLevelUnknown.png</file>
+        <file>LogLevelWarning.png</file>
+        <file>media-seek-forward-16.png</file>
+        <file>media-seek-forward-32.png</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,11 @@
+testData/
+release/
+debug/
+GeneratedFiles/
+x64/
+.vs/
+*.user
+*.vcxproj
+*.filters
+*.sln
+*.vspx
