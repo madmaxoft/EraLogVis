@@ -10,90 +10,86 @@
 
 #include <QFile>
 #include <QtDebug>
+#include <QtZlib/zlib.h>
 
 #include "Session.h"
 #include "LogFile.h"
-#include "StreamUngzipper.h"
 #include "Stopwatch.h"
+#include "Exceptions.h"
 
 
 
 
 
-////////////////////////////////////////////////////////////////////////////////
-// PreviewDataStream:
-
-/** Implements a wrapper over QIODevice that reads a portion of the stream for preview,
-but then allows the whole stream to be read again. */
-template <size_t NumPreviewBytes = 1000>
-class PreviewDataStream:
-	public QIODevice
+/** Reads all the data from the QIODevice into a std::string. */
+static std::string readWholeStream(QIODevice & a_DataStream)
 {
-public:
-	PreviewDataStream(QIODevice & a_ParentStream):
-		m_ParentStream(a_ParentStream),
-		m_PreviewData(a_ParentStream.read(NumPreviewBytes)),
-		m_ReadPos(0)
+	std::string res;
+	auto size = a_DataStream.size();
+	res.resize(static_cast<size_t>(size));
+	if (a_DataStream.read(const_cast<char *>(res.data()), size) != size)
 	{
+		throw EFileReadError(__FILE__, __LINE__);
 	}
-
-
-	/** Returns the data read for preview, read-only. */
-	const QByteArray & previewData() const { return m_PreviewData; }
-
-
-protected:
-
-	/** The IO device on top of which this wrapper operates. */
-	QIODevice & m_ParentStream;
-
-	/** The data read from m_ParentStream for preview. */
-	QByteArray m_PreviewData;
-
-	/** Index into m_PreviewData where the next read operation should begin reading.
-	-1 if m_PreviewData should be skipped. */
-	int m_ReadPos;
+	return res;
+}
 
 
 
-	// QIODevice overrides:
-	virtual qint64 readData(char * a_Data, qint64 a_MaxLen) override
+
+
+/** Passes the specified data into ungzip, returns everything decompressed.
+Returns an empty string on failure. */
+static std::string ungzipString(const void * a_Data, size_t a_DataSize)
+{
+	char buf[30000];
+	std::string res;
+	res.reserve(a_DataSize);
+
+	// Init the ZLIB ungzipper:
+	z_stream zlibStream;
+	memset(&zlibStream, 0, sizeof(zlibStream));
+	auto zr = inflateInit2(&zlibStream, 31);  // Force GZIP decoding
+	if (zr != Z_OK)
 	{
-		// If there's no data in the m_PreviewData buffer, read directly from the parent:
-		if (m_ReadPos < 0)
-		{
-			return m_ParentStream.read(a_Data, a_MaxLen);
-		}
-
-		// Read from the m_PreviewData buffer first, then from the parent:
-		auto numToRead = std::min<int>(a_MaxLen, m_PreviewData.size() - m_ReadPos);
-		memcpy(a_Data, m_PreviewData.data() + m_ReadPos, numToRead);
-		m_ReadPos += numToRead;
-		if (m_ReadPos >= m_PreviewData.size())
-		{
-			m_ReadPos = -1;
-		}
-		if (a_MaxLen == numToRead)
-		{
-			return a_MaxLen;
-		}
-		auto numReadAfter = readData(a_Data + numToRead, a_MaxLen - numToRead);
-		if (numReadAfter < 0)
-		{
-			// Failed to read anything past the preview data, return just the preview data:
-			return numToRead;
-		}
-		return numReadAfter + numToRead;
+		qDebug("%s: uncompression initialization failed: %d (\"%s\").", __FUNCTION__, zr, zlibStream.msg);
+		return std::string();
 	}
-
-	virtual qint64 writeData(const char * a_Data, qint64 a_MaxLen) override
+	zlibStream.next_in = const_cast<Bytef *>(reinterpret_cast<const Bytef *>(a_Data));
+	zlibStream.avail_in = static_cast<uInt>(a_DataSize);
+	while (true)
 	{
-		Q_UNUSED(a_Data);
-		Q_UNUSED(a_MaxLen);
-		Q_ASSERT(!"Writing not supported");
-		return -1;
-	}
-};
+		zlibStream.next_out = reinterpret_cast<z_Bytef *>(buf);
+		zlibStream.avail_out = sizeof(buf);
+		zr = inflate(&zlibStream, Z_SYNC_FLUSH);
+		switch (zr)
+		{
+			case Z_OK:
+			{
+				// Decompressed a chunk, append it to the output data:
+				res.append(buf, sizeof(buf) - zlibStream.avail_out);
+				break;
+			}
+			case Z_STREAM_END:
+			{
+				// Decompressed all data, append any leftovers and return the whole thing:
+				res.append(buf, sizeof(buf) - zlibStream.avail_out);
+				inflateEnd(&zlibStream);
+				return res;
+			}
+			default:
+			{
+				// Error
+				qDebug("%s: uncompression failed: %d (\"%s\").", __FUNCTION__, zr, zlibStream.msg);
+				inflateEnd(&zlibStream);
+				return std::string();
+			}
+		}
+	}  // while (true)
+	// Should not get here, the loop above only has a return, no break
+	assert(!"Invalid code path");
+	return std::string();
+}
 
 
 
@@ -109,34 +105,27 @@ public:
 	PlainTextMDMVAHParser(
 		FileParser & a_FileParser,
 		const QString & a_FileName,
-		const QString & a_InnerFileName
+		const QString & a_InnerFileName,
+		std::string && a_CompleteText
 	):
 		m_FileParser(a_FileParser),
-		m_LogFile(new LogFile(a_FileName, a_InnerFileName, LogFile::SourceType::stMDMVAH, ""))
+		m_LogFile(new LogFile(
+			a_FileName, a_InnerFileName, LogFile::SourceType::stMDMVAH, "", std::move(a_CompleteText)
+		))
 	{
 	}
 
 
-	/** Parses the specified stream into the LogFile object contained within self.
+	/** Parses the contents stored in m_LogFile into messages
 	Returns true on success, false on failure. */
-	bool parseStream(QIODevice & a_DataStream)
+	bool parseContents()
 	{
-		// Parse the data by fixed-size buffers:
 		resetAfterLine();
-		while (!m_FileParser.m_ShouldAbort.load())
+		const auto & completeText = m_LogFile->getCompleteText();
+		if (!parseBuf(completeText.c_str(), completeText.size()))
 		{
-			char buf[30000];
-			auto bufLen = a_DataStream.read(buf, sizeof(buf));
-			if (bufLen <= 0)
-			{
-				break;
-			}
-			if (!processBuf(buf, static_cast<int>(bufLen)))
-			{
-				return false;
-			}
+			return false;
 		}
-		processBuf("\n", 1);  // Push an empty line through the parser to flush
 		emit m_FileParser.finishedParsingFile(m_LogFile);
 		return true;
 	}
@@ -159,7 +148,7 @@ protected:
 		sContinuation,
 	} m_State;
 
-	/** The FileParser isntance that has created this helper.
+	/** The FileParser instance that has created this helper.
 	Used for detecting abortion and to report the parsed files. */
 	FileParser & m_FileParser;
 
@@ -171,10 +160,6 @@ protected:
 	quint64 m_CurrentThreadID;
 	LogFile::LogLevel m_CurrentLogLevel;
 	bool m_HasJustFinishedLine;
-
-	// Data remembered from a previous buffer:
-	QByteArray m_BufferedMessage;
-	QByteArray m_BufferedContinuation;
 
 
 	/** Translates the loglevel indicator character into the internal loglevel value. */
@@ -241,26 +226,36 @@ protected:
 		m_CurrentMinute = 0;
 		m_CurrentSecond = 0;
 		m_CurrentThreadID = 0;
-		m_BufferedMessage.clear();
-		m_BufferedContinuation.clear();
 		m_State = sYear;
 		m_HasJustFinishedLine = true;
 	}
 
 
 
-	/** Processes a single line from the input.
-	Returns true if the line is processed successfully, false on failure. */
-	bool processBuf(const char * a_Buf, int a_Length)
+	/** Processes the specified logfile contents buffer. */
+	bool parseBuf(const char * a_Buf, size_t a_Length)
 	{
-		int lastEOL = 0;
-		int lastContinuationBegin = 0;
-		int lastMessageBegin = 0;
-		for (int i = 0; i < a_Length; ++i)
+		int linesBeforeAbortCheck = 1000;
+		size_t lastEOL = 0;
+		size_t lastContinuationBegin = 0;
+		size_t lastMessageBegin = 0;
+		for (size_t i = 0; i < a_Length; ++i)
 		{
 			auto ch = a_Buf[i];
 			if ((ch == '\n') || (ch == '\r'))
 			{
+				if (linesBeforeAbortCheck > 0)
+				{
+					linesBeforeAbortCheck -= 1;
+				}
+				else
+				{
+					linesBeforeAbortCheck = 1000;
+					if (m_FileParser.m_ShouldAbort.load())  // This check is a bit expensive, don't do it too often
+					{
+						return false;
+					}
+				}
 				if (m_HasJustFinishedLine)
 				{
 					// This was a CRLF, skip
@@ -275,50 +270,18 @@ protected:
 						QDate(m_CurrentYear, m_CurrentMonth, m_CurrentDay),
 						QTime(m_CurrentHour, m_CurrentMinute, m_CurrentSecond)
 					);
-					std::string msg;
-					if (m_BufferedMessage.isEmpty())
-					{
-						// The whole message is in a_Buf, no need to copy it
-						if (i > lastMessageBegin)
-						{
-							msg.assign(a_Buf + lastMessageBegin, i - lastMessageBegin);
-						}
-					}
-					else
-					{
-						// Part of the message is buffered from previous buf, copy the rest and decode:
-						if (i > 0)
-						{
-							m_BufferedMessage.append(a_Buf, i);
-						}
-						msg = m_BufferedMessage.toStdString();
-						m_BufferedMessage.clear();
-					}
-					m_LogFile->addMessage(std::move(dt), m_CurrentLogLevel, std::string(), m_CurrentThreadID, std::move(msg));
+					m_LogFile->addMessage(
+						std::move(dt),
+						m_CurrentLogLevel,
+						std::string(),
+						m_CurrentThreadID,
+						lastMessageBegin, i - lastMessageBegin
+					);
 				}
 				else
 				{
 					// We have a continuation:
-					std::string msg;
-					if (m_BufferedContinuation.isEmpty())
-					{
-						// The whole message is in a_Buf, no need to copy it
-						if (i - 1 > lastContinuationBegin)
-						{
-							msg.assign(a_Buf + lastContinuationBegin, i - lastContinuationBegin - 1);
-						}
-					}
-					else
-					{
-						// Part of the message is buffered from previous buf, copy the rest and decode:
-						if (i > 0)
-						{
-							m_BufferedContinuation.append(a_Buf, i);
-						}
-						msg = m_BufferedContinuation.toStdString();
-						m_BufferedContinuation.clear();
-					}
-					if (!m_LogFile->appendContinuationToLastMessage(std::move(msg)))
+					if (!m_LogFile->appendContinuationToLastMessage(i - lastContinuationBegin))
 					{
 						return false;
 					}
@@ -456,17 +419,30 @@ protected:
 			}  // swith (ch)
 		}  // for i - a_Buf[]
 
-		// Ran out of data to parse, buffer anything important for the next buffer-parse:
+		// Ran out of data to parse, add anything left over:
 		switch (m_State)
 		{
 			case sMessage:
 			{
-				m_BufferedMessage.append(a_Buf + lastMessageBegin, a_Length - lastMessageBegin);
+				QDateTime dt(
+					QDate(m_CurrentYear, m_CurrentMonth, m_CurrentDay),
+					QTime(m_CurrentHour, m_CurrentMinute, m_CurrentSecond)
+				);
+				m_LogFile->addMessage(
+					std::move(dt),
+					m_CurrentLogLevel,
+					std::string(),
+					m_CurrentThreadID,
+					lastMessageBegin, a_Length - lastMessageBegin
+				);
 				break;
 			}
 			case sContinuation:
 			{
-				m_BufferedContinuation.append(a_Buf + lastContinuationBegin, a_Length - lastContinuationBegin);
+				if (!m_LogFile->appendContinuationToLastMessage(a_Length - lastMessageBegin))
+				{
+					return false;
+				}
 				break;
 			}
 		}
@@ -489,37 +465,29 @@ public:
 		FileParser & a_FileParser,
 		const QString & a_FileName,
 		const QString & a_InnerFileName,
-		const QString & a_SourceIdentification
+		const QString & a_SourceIdentification,
+		std::string && a_CompleteText
 	):
 		m_FileParser(a_FileParser),
 		m_LogFile(new LogFile(
-			a_FileName, a_InnerFileName, LogFile::SourceType::stUnknown, a_SourceIdentification
+			a_FileName, a_InnerFileName,
+			LogFile::SourceType::stUnknown, a_SourceIdentification,
+			std::move(a_CompleteText)
 		))
 	{
 	}
 
 
-	/** Parses the specified stream into the LogFile object contained within self.
+	/** Parses m_LogFile's m_CompleteText into messages within that LogFile.
 	Returns true on success, false on failure. */
-	bool parseStream(QIODevice & a_DataStream)
+	bool parseContents()
 	{
-		// Parse the data by fixed-size buffers:
 		resetAfterLine();
-		while (!m_FileParser.m_ShouldAbort.load())
+		const auto & completeText = m_LogFile->getCompleteText();
+		if (!processBuf(completeText.c_str(), completeText.size()))
 		{
-			char buf[30000];
-			auto bufLen = a_DataStream.read(buf, sizeof(buf));
-			if (bufLen <= 0)
-			{
-				break;
-			}
-			if (!processBuf(buf, static_cast<int>(bufLen)))
-			{
-				return false;
-			}
+			return false;
 		}
-		processBuf("\n", 1);  // Push an empty line through the parser to flush
-		m_LogFile->tryIdentifySource();
 		emit m_FileParser.finishedParsingFile(m_LogFile);
 		return true;
 	}
@@ -545,7 +513,7 @@ protected:
 		sContinuation,
 	} m_State;
 
-	/** The FileParser isntance that has created this helper.
+	/** The FileParser instance that has created this helper.
 	Used for detecting abortion and to report the parsed files. */
 	FileParser & m_FileParser;
 
@@ -557,12 +525,6 @@ protected:
 	quint64 m_CurrentThreadID;
 	LogFile::LogLevel m_CurrentLogLevel;
 	std::string m_CurrentComponent;
-	bool m_HasJustFinishedLine;
-
-	// String values buffered between calls to processBuf():
-	QByteArray m_BufferedMessage;
-	QByteArray m_BufferedContinuation;
-	QByteArray m_BufferedComponent;
 
 
 
@@ -576,11 +538,7 @@ protected:
 		m_CurrentMinute = 0;
 		m_CurrentSecond = 0;
 		m_CurrentThreadID = 0;
-		m_BufferedMessage.clear();
-		m_BufferedContinuation.clear();
-		m_BufferedComponent.clear();
 		m_State = sYear;
-		m_HasJustFinishedLine = true;
 	}
 
 
@@ -673,26 +631,43 @@ protected:
 
 	/** Processes a single line from the input.
 	Returns true if the line is processed successfully, false on failure. */
-	bool processBuf(const char * a_Buf, int a_Length)
+	bool processBuf(const char * a_Buf, size_t a_Length)
 	{
 		/*
 		Typical line:
 		2017-01-13 04:55:53 Debug: CReplicationModule [Thread 7f43937fe700]: CStepTx: Remote peer signalized...
 		*/
-		int lastEOL = 0;
-		int lastMessageBegin = 0;
-		int lastComponentBegin = 0;
-		for (int i = 0; i < a_Length; ++i)
+		int linesBeforeAbortCheck = 1000;
+		size_t lastEOL = 0;
+		size_t lastMessageBegin = 0;
+		size_t lastComponentBegin = 0;
+		bool hasJustFinishedLine = true;
+		for (size_t i = 0; i < a_Length; ++i)
 		{
 			auto ch = a_Buf[i];
 			if ((ch == '\n') || (ch == '\r'))
 			{
-				if (m_HasJustFinishedLine)
+				if (hasJustFinishedLine)
 				{
 					// This was a CRLF, skip
-					m_HasJustFinishedLine = false;
+					hasJustFinishedLine = false;
 					continue;
 				}
+
+				// Check whether an abort is requested from the UI thread:
+				if (linesBeforeAbortCheck > 0)
+				{
+					linesBeforeAbortCheck -= 1;
+				}
+				else
+				{
+					linesBeforeAbortCheck = 1000;
+					if (m_FileParser.m_ShouldAbort.load())  // This check is a bit expensive, don't do it too often
+					{
+						return false;
+					}
+				}
+
 				// Process end-of-line - either add message or add continuation:
 				if (m_State == sMessage)
 				{
@@ -701,65 +676,28 @@ protected:
 						QDate(m_CurrentYear, m_CurrentMonth, m_CurrentDay),
 						QTime(m_CurrentHour, m_CurrentMinute, m_CurrentSecond)
 					);
-					std::string msg;
-					if (m_BufferedMessage.isEmpty())
-					{
-						// The whole message is in a_Buf, no need to copy it
-						if (i > lastMessageBegin)
-						{
-							msg.assign(a_Buf + lastMessageBegin, i - lastMessageBegin);
-						}
-					}
-					else
-					{
-						// Part of the message is buffered from previous buf, copy the rest and decode:
-						if (i > 0)
-						{
-							m_BufferedMessage.append(a_Buf, i);
-						}
-						msg = m_BufferedMessage.toStdString();
-						m_BufferedMessage.clear();
-					}
 					m_LogFile->addMessage(
 						std::move(dt),
 						m_CurrentLogLevel,
 						std::move(m_CurrentComponent),
 						m_CurrentThreadID,
-						std::move(msg)
+						lastMessageBegin, i - lastMessageBegin
 					);
 				}
 				else
 				{
 					// We have a continuation:
-					std::string msg;
-					if (m_BufferedContinuation.isEmpty())
-					{
-						// The whole message is in a_Buf, no need to copy it
-						if (i - 1 > lastEOL)
-						{
-							msg.assign(a_Buf + lastEOL + 1, i - lastEOL - 1);
-						}
-					}
-					else
-					{
-						// Part of the message is buffered from previous buf, copy the rest and decode:
-						if (i > 0)
-						{
-							m_BufferedContinuation.append(a_Buf, i);
-						}
-						msg = m_BufferedContinuation.toStdString();
-						m_BufferedContinuation.clear();
-					}
-					if (!m_LogFile->appendContinuationToLastMessage(std::move(msg)))
+					if (!m_LogFile->appendContinuationToLastMessage(i - lastEOL))
 					{
 						return false;
 					}
 				}
 				lastEOL = i;
 				resetAfterLine();
+				hasJustFinishedLine = true;
 				continue;
 			}
-			m_HasJustFinishedLine = false;
+			hasJustFinishedLine = false;
 
 			switch (m_State)
 			{
@@ -861,7 +799,6 @@ protected:
 					{
 						lastComponentBegin = i + 1;
 						m_State = sComponent;
-						m_BufferedComponent.clear();
 					}
 					break;
 				}  // sLogLevelIgnore
@@ -870,16 +807,7 @@ protected:
 				{
 					if (ch == ' ')
 					{
-						if (m_BufferedComponent.isEmpty())
-						{
-							m_CurrentComponent.assign(a_Buf + lastComponentBegin, i - lastComponentBegin);
-						}
-						else
-						{
-							m_BufferedComponent.append(a_Buf, i);
-							m_CurrentComponent = m_BufferedComponent.toStdString();
-							m_BufferedComponent.clear();
-						}
+						m_CurrentComponent.assign(a_Buf + lastComponentBegin, i - lastComponentBegin);
 						m_State = sComponentIgnore;
 					}
 					break;
@@ -917,22 +845,30 @@ protected:
 			}  // swith (ch)
 		}  // for i - a_Buf[]
 
-		// Ran out of data to parse, buffer anything important for the next buffer-parse:
+		// Ran out of data to parse, append any leftovers:
 		switch (m_State)
 		{
-			case sComponent:
-			{
-				m_BufferedComponent.append(a_Buf + lastComponentBegin, a_Length - lastComponentBegin);
-				break;
-			}
 			case sMessage:
 			{
-				m_BufferedMessage.append(a_Buf + lastMessageBegin, a_Length - lastMessageBegin);
-				break;
+				QDateTime dt(
+					QDate(m_CurrentYear, m_CurrentMonth, m_CurrentDay),
+					QTime(m_CurrentHour, m_CurrentMinute, m_CurrentSecond)
+				);
+				m_LogFile->addMessage(
+					std::move(dt),
+					m_CurrentLogLevel,
+					std::move(m_CurrentComponent),
+					m_CurrentThreadID,
+					lastMessageBegin, a_Length - lastMessageBegin
+				);
 			}
 			case sContinuation:
 			{
-				m_BufferedContinuation.append(a_Buf + lastEOL, a_Length - lastEOL);
+				// We have a continuation:
+				if (!m_LogFile->appendContinuationToLastMessage(a_Length - lastEOL))
+				{
+					return false;
+				}
 				break;
 			}
 		}
@@ -967,7 +903,8 @@ void FileParser::parse(const QString & a_FileName)
 	}
 	else
 	{
-		parseStream(f);
+		auto contents = readWholeStream(f);
+		parseContents(std::move(contents));
 	}
 	emit parsedAllFiles();
 }
@@ -976,46 +913,44 @@ void FileParser::parse(const QString & a_FileName)
 
 
 
-bool FileParser::parseStream(QIODevice & a_Stream)
+bool FileParser::parseContents(std::string && a_Contents)
 {
 	// Try to recognize format based on the initial data in the stream:
-	PreviewDataStream<1000> ds(a_Stream);
-	ds.open(QIODevice::ReadOnly);
-	auto handler = getFormatHandler(ds.previewData());
+	auto handler = getFormatHandler(a_Contents);
 	if (!handler)
 	{
 		return false;
 	}
-	return handler(ds);
+	return handler(std::move(a_Contents));
 }
 
 
 
 
 
-std::function<bool(QIODevice &)> FileParser::getFormatHandler(const QByteArray & a_InitialData)
+std::function<bool (std::string &&)> FileParser::getFormatHandler(const std::string & a_Contents)
 {
-	if (a_InitialData.count() < 2)
+	if (a_Contents.size() < 2)
 	{
 		emit failedToRecognize(tr("Not enough data present in the file"));
 		return nullptr;
 	}
 
 	// Test for GZIP header:
-	if ((a_InitialData[0] == 0x1f) && (static_cast<unsigned char>(a_InitialData[1]) == 0x8b))
+	if ((a_Contents[0] == 0x1f) && (static_cast<unsigned char>(a_Contents[1]) == 0x8b))
 	{
-		return [this](QIODevice & a_DataStream)
+		return [this](std::string && a_HContents)
 		{
-			return this->parseGZipStream(a_DataStream);
+			return this->parseGZipContents(std::move(a_HContents));
 		};
 	}
 
-	// Test if most characters are plain letters / CR / LF / SP / HT
-	int numPlainText = 0;
-	int count = a_InitialData.count();
-	for (int i = 0; i < count; i++)
+	// Test if most characters within the first 1000 bytes are plain letters / CR / LF / SP / HT
+	size_t numPlainText = 0;
+	auto size = std::min<size_t>(a_Contents.size(), 1000);
+	for (int i = 0; i < size; i++)
 	{
-		auto v = a_InitialData.at(i);
+		auto v = a_Contents[i];
 		if (
 			(v == 0x09) ||  // HT
 			(v == 0x0a) ||  // LF
@@ -1026,28 +961,28 @@ std::function<bool(QIODevice &)> FileParser::getFormatHandler(const QByteArray &
 			numPlainText = numPlainText + 1;
 		}
 	}
-	if (count - numPlainText < count / 50)  // Less than 2 % "weird" characters
+	if (size - numPlainText < size / 50)  // Less than 2 % "weird" characters
 	{
 		// Check that the first line starts with a date
 		static const QString format = "yyyy-MM-dd HH:mm:ss";
-		auto dateTimeString = QString::fromUtf8(a_InitialData.left(19));
+		auto dateTimeString = QString::fromStdString(a_Contents.substr(0, 19));
 		QDateTime dateTime = QDateTime::fromString(dateTimeString, format);
 		if (dateTime.isValid())
 		{
 			// Decide between the MDM/VAH format and ERA format
 			// VAH format always has a space as the 21st character
-			if (a_InitialData.at(21) == ' ')
+			if (a_Contents[21] == ' ')
 			{
-				return [this](QIODevice & a_DataStream)
+				return [this](std::string && a_HContents)
 				{
-					return this->parseTextStreamMDMVAH(a_DataStream);
+					return this->parseTextContentsMDMVAH(std::move(a_HContents));
 				};
 			}
 			else
 			{
-				return [this](QIODevice & a_DataStream)
+				return [this](std::string && a_HContents)
 				{
-					return this->parseTextStreamEra(a_DataStream);
+					return this->parseTextContentsEra(std::move(a_HContents));
 				};
 			}
 		}
@@ -1061,23 +996,21 @@ std::function<bool(QIODevice &)> FileParser::getFormatHandler(const QByteArray &
 
 
 
-bool FileParser::parseGZipStream(QIODevice & a_DataStream)
+bool FileParser::parseGZipContents(std::string && a_Contents)
 {
 	Stopwatch sw("GZIP + parsing");
-	StreamUngzipper ungzipper(a_DataStream);
-	ungzipper.open(QIODevice::ReadOnly);
-	return parseStream(ungzipper);
+	return parseContents(ungzipString(a_Contents.data(), a_Contents.size()));
 }
 
 
 
 
 
-bool FileParser::parseTextStreamMDMVAH(QIODevice & a_DataStream)
+bool FileParser::parseTextContentsMDMVAH(std::string && a_Contents)
 {
-	PlainTextMDMVAHParser parser(*this, m_FileName, m_InnerFileName);
+	PlainTextMDMVAHParser parser(*this, m_FileName, m_InnerFileName, std::move(a_Contents));
 	Stopwatch sw("MDM / VAH parsing");
-	if (!parser.parseStream(a_DataStream))
+	if (!parser.parseContents())
 	{
 		emit parseFailed(tr("MDM / VAH log parser error"));
 		return false;
@@ -1089,11 +1022,11 @@ bool FileParser::parseTextStreamMDMVAH(QIODevice & a_DataStream)
 
 
 
-bool FileParser::parseTextStreamEra(QIODevice & a_DataStream)
+bool FileParser::parseTextContentsEra(std::string && a_Contents)
 {
-	PlainTextEraParser parser(*this, m_FileName, m_InnerFileName, m_SourceIdentification);
+	PlainTextEraParser parser(*this, m_FileName, m_InnerFileName, m_SourceIdentification, std::move(a_Contents));
 	Stopwatch sw("ERA parsing");
-	if (parser.parseStream(a_DataStream))
+	if (parser.parseContents())
 	{
 		return true;
 	}

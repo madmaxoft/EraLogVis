@@ -62,4 +62,20 @@ public:
 
 
 
+class EFileReadError:
+	public EException
+{
+	typedef EException Super;
+
+public:
+	explicit EFileReadError(const char * a_FileName, int a_Line):
+		Super(a_FileName, a_Line)
+	{
+	}
+};
+
+
+
+
+
 #endif // EXCEPTIONS_H

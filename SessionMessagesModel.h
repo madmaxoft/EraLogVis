@@ -90,6 +90,7 @@ protected slots:
 
 
 protected:
+
 	class MessageSorter;
 
 	/** Represents a single row in the model. */
@@ -135,16 +136,16 @@ protected:
 	Removes the messages from m_MessageRows, emits appropriate model's item deletion signals. */
 	void deleteLogFileMessages(LogFile * a_LogFile);
 
-	/** Returns true if the specified log message should be shown (is not filtered). */
-	bool shouldShowMessage(LogFile * a_LogFile, int a_MsgIndex) const;
-
 	/** Re-evaluates the filter for all messages, inserting and deleting rows as necessary.
 	Filter in this context is the m_FilterString, m_LogLevelHidden and m_DisabledLogFiles combo. */
 	void reFilter();
 
 	/** Returns true if the specified message passes the filter.
 	Filter in this context is the m_FilterString, m_LogLevelHidden and m_DisabledLogFiles combo. */
-	bool shouldShowMessage(const LogFile::Message & a_Message, const LogFile * a_LogFile);
+	bool shouldShowMessage(const LogFile & a_LogFile, const LogFile::Message & a_Message) const;
+
+	/** Returns the module name based on the identifier used in the specified log file. */
+	QString moduleIdentifierToString(const LogFile & a_LogFile, int a_ModuleIdentifier) const;
 };
 
 

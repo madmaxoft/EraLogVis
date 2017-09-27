@@ -7,6 +7,7 @@
 
 
 #include "LogFile.h"
+#include <assert.h>
 #include <QFileInfo>
 #include "Exceptions.h"
 
@@ -14,51 +15,20 @@
 
 
 
-LogFile::LogFile(const QString & a_FileName):
-	m_FileName(a_FileName),
-	m_SourceType(LogFile::SourceType::stUnknown)
-{
-	constructDisplayName();
-}
-
-
-
-
-
-LogFile::LogFile(const QString & a_FileName, const QString & a_InnerFileName):
-	m_FileName(a_FileName),
-	m_InnerFileName(a_InnerFileName),
-	m_SourceType(LogFile::SourceType::stUnknown)
-{
-	constructDisplayName();
-}
-
-
-
-
-
-LogFile::LogFile(
-	const QString & a_FileName,
+LogFile::LogFile(const QString & a_FileName,
 	const QString & a_InnerFileName,
 	SourceType a_SourceType,
-	const QString & a_SourceIdentifier
+	const QString & a_SourceIdentifier,
+	std::string && a_CompleteText
 ):
 	m_FileName(a_FileName),
 	m_InnerFileName(a_InnerFileName),
 	m_SourceType(a_SourceType),
-	m_SourceIdentifier(a_SourceIdentifier)
+	m_SourceIdentifier(a_SourceIdentifier),
+	m_CompleteText(std::move(a_CompleteText))
 {
 	constructDisplayName();
 }
-
-
-
-
-void LogFile::addMessage(Message && a_Message)
-{
-	m_Messages.emplace_back(std::move(a_Message));
-}
-
 
 
 
@@ -66,30 +36,32 @@ void LogFile::addMessage(Message && a_Message)
 void LogFile::addMessage(
 	QDateTime && a_DateTime,
 	LogLevel a_LogLevel,
-	std::string && a_Module,
+	const std::string & a_Module,
 	quint64 a_ThreadID,
-	std::string && a_Text
+	size_t a_TextStart, size_t a_TextLength
 )
 {
+	assert(a_TextStart + a_TextLength <= m_CompleteText.size());
+	auto moduleIdx = moduleToIdentifier(a_Module);
 	m_Messages.emplace_back(
 		std::move(a_DateTime),
 		a_LogLevel,
-		std::move(a_Module),
+		moduleIdx,
 		a_ThreadID,
-		std::move(a_Text)
+		a_TextStart, a_TextLength
 	);
 }
 
 
 
 
-bool LogFile::appendContinuationToLastMessage(std::string && a_Text)
+bool LogFile::appendContinuationToLastMessage(size_t a_AddLength)
 {
 	if (m_Messages.empty())
 	{
 		return false;
 	}
-	m_Messages.back().m_Text.append(std::move(a_Text));
+	m_Messages.back().m_TextLength += a_AddLength;
 	return true;
 }
 
@@ -149,6 +121,33 @@ bool LogFile::operator < (const LogFile & a_Other) const
 
 
 
+std::string LogFile::identifierToModule(int a_ModuleIdentifier) const
+{
+	auto itr = m_IdentifierToModule.find(a_ModuleIdentifier);
+	if (itr == m_IdentifierToModule.end())
+	{
+		return std::string();
+	}
+	return itr->second;
+}
+
+
+
+
+
+QString LogFile::getMessageText(const Message & a_Message) const
+{
+	assert(a_Message.m_TextStart + a_Message.m_TextLength <= m_CompleteText.size());
+	return QString::fromUtf8(
+		m_CompleteText.c_str() + a_Message.m_TextStart,
+		static_cast<int>(a_Message.m_TextLength)
+	);
+}
+
+
+
+
+
 void LogFile::constructDisplayName()
 {
 	QString fn = m_InnerFileName.isEmpty() ? m_FileName : m_InnerFileName;
@@ -163,30 +162,49 @@ void LogFile::constructDisplayName()
 LogFile::SourceType LogFile::tryIdentifySourceType() const
 {
 	// Based on the module names in log messages:
-	static const std::string modMultiProxy   = "CMultiProxyToMultiAgentConnectorModule";
-	static const std::string modVAHConnector = "CVAHConnectorModule";
-	static const std::string modMDMConnector = "CMDMConnectorModule";
-	static const std::string modOSConnector  = "CSystemConnectorModule";
-	for (const auto & msg: m_Messages)
+	// Specific unique modules present in the log indicate the source type:
+	auto end = m_ModuleToIdentifier.end();
+	if (m_ModuleToIdentifier.find("CMultiProxyToMultiAgentConnectorModule") != end)
 	{
-		if (msg.m_Module == modMultiProxy)
-		{
-			return SourceType::stMultiProxy;
-		}
-		if ((msg.m_Module == modVAHConnector) || (msg.m_Module == modMDMConnector))
-		{
-			return SourceType::stMultiAgent;
-		}
-		if (msg.m_Module == modOSConnector)
-		{
-			return SourceType::stAgent;
-		}
-	}  // for msg - m_Messages[]
+		return SourceType::stMultiProxy;
+	}
+	if (m_ModuleToIdentifier.find("CVAHConnectorModule") != end)
+	{
+		return SourceType::stMultiAgent;
+	}
+	if (m_ModuleToIdentifier.find("CMDMConnectorModule") != end)
+	{
+		return SourceType::stMultiAgent;
+	}
+	if (m_ModuleToIdentifier.find("CSystemConnectorModule") != end)
+	{
+		return SourceType::stAgent;
+	}
 
 	// TODO: Based on the filenames
 
 	// Not recognized:
 	return SourceType::stUnknown;
+}
+
+
+
+
+
+int LogFile::moduleToIdentifier(const std::string & a_ModuleName)
+{
+	auto itr = m_ModuleToIdentifier.find(a_ModuleName);
+	if (itr != m_ModuleToIdentifier.end())
+	{
+		// Already known, return the found identifier:
+		return itr->second;
+	}
+
+	// Not found, add it to both maps:
+	auto identifier = static_cast<int>(m_ModuleToIdentifier.size());
+	m_ModuleToIdentifier[a_ModuleName] = identifier;
+	m_IdentifierToModule[identifier] = a_ModuleName;
+	return identifier;
 }
 
 

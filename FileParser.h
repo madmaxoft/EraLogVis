@@ -87,23 +87,23 @@ protected:
 
 	/** Attempts to detect the format of the data in the sample (first N bytes of the file).
 	Returns the handler to use for the file, nullptr if not known. */
-	std::function<bool(QIODevice &)> getFormatHandler(const QByteArray & a_InitialData);
+	std::function<bool(std::string &&)> getFormatHandler(const std::string & a_Contents);
 
-	/** Parses the specified data stream into the specified Session.
+	/** Parses the specified data stream into LogFile instances, emits each via finishedParsingFile.
 	Returns true on success, false on failure. */
-	bool parseStream(QIODevice & a_Stream);
+	bool parseContents(std::string && a_Contents);
 
 	/** Parses the specified GZIP data stream into the specified Session.
 	Returns true on success, false on failure. */
-	bool parseGZipStream(QIODevice & a_DataStream);
+	bool parseGZipContents(std::string && a_Contents);
 
 	/** Parses the specified plaintext data stream in MDM/VAH format into the specified Session.
 	Returns true on success, false on failure. */
-	bool parseTextStreamMDMVAH(QIODevice & a_DataStream);
+	bool parseTextContentsMDMVAH(std::string && a_Contents);
 
 	/** Parses the specified plaintext data stream in ERA format into the specified Session.
 	Returns true on success, false on failure. */
-	bool parseTextStreamEra(QIODevice & a_DataStream);
+	bool parseTextContentsEra(std::string && a_Contents);
 
 	/** Emits the finishedParsingFile signal with the specified log file data and the stored metadata. */
 	void reportFileParsed(LogFilePtr a_LogFile);

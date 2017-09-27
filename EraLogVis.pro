@@ -31,7 +31,6 @@ SOURCES += \
 	FileParser.cpp \
 	SessionSourcesModel.cpp \
 	SessionMessagesModel.cpp \
-	StreamUngzipper.cpp \
 	Stopwatch.cpp \
 	MessageView.cpp \
 	BackgroundParser.cpp
@@ -44,7 +43,6 @@ HEADERS  += \
 	FileParser.h \
 	SessionSourcesModel.h \
 	SessionMessagesModel.h \
-	StreamUngzipper.h \
 	Stopwatch.h \
 	MessageView.h \
 	BackgroundParser.h

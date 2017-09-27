@@ -179,7 +179,8 @@ QVariant SessionMessagesModel::data(const QModelIndex & a_Index, int a_Role) con
 				// Happens while removing items from the model with the m_MessageRows resized to max
 				return QVariant();
 			}
-			const auto & msg = row.m_LogFile->messages()[row.m_MessageIndex];
+			const auto & logFile = *(row.m_LogFile);
+			const auto & msg = logFile.messages()[row.m_MessageIndex];
 			static const QString dateTimeFormat = "yyyy-MM-dd HH:mm:ss";
 			static const QString formatSingle = "%1";
 			switch (a_Index.column())
@@ -187,8 +188,8 @@ QVariant SessionMessagesModel::data(const QModelIndex & a_Index, int a_Role) con
 				case colDateTime: return msg.m_DateTime.toString(dateTimeFormat);
 				case colLogLevel: return logLevelToString(msg.m_LogLevel);
 				case colThreadID: return formatSingle.arg(msg.m_ThreadID);
-				case colModule:   return QString::fromUtf8(msg.m_Module.c_str());
-				case colText:     return QString::fromUtf8(msg.m_Text.c_str());
+				case colModule:   return moduleIdentifierToString(logFile, msg.m_ModuleIdentifier);
+				case colText:     return logFile.getMessageText(msg);
 				case colSource:
 				{
 					static const QString strAgent = "Agent";
@@ -529,32 +530,6 @@ void SessionMessagesModel::deleteLogFileMessages(LogFile * a_LogFile)
 
 
 
-bool SessionMessagesModel::shouldShowMessage(LogFile * a_LogFile, int a_MsgIndex) const
-{
-	const auto & msg = a_LogFile->messages()[a_MsgIndex];
-	if (!m_FilterString.empty())
-	{
-		if (!msg.m_Text.find(m_FilterString))
-		{
-			// Doesn't match m_FilterString, discard:
-			return false;
-		}
-	}
-
-	if (m_LogLevelHidden.find(msg.m_LogLevel) != m_LogLevelHidden.end())
-	{
-		// Doesn't match m_LogLevelHidden, discard:
-		return false;
-	}
-
-	// Matches everything:
-	return true;
-}
-
-
-
-
-
 void SessionMessagesModel::reFilter()
 {
 	// Re-create the m_MessageRows based on current filter settings
@@ -577,7 +552,7 @@ void SessionMessagesModel::reFilter()
 	for (auto msg = sorter.getNextMessage(); msg.m_LogFile != nullptr; msg = sorter.getNextMessage())
 	{
 		const auto & m = msg.m_LogFile->messages()[msg.m_MessageIndex];
-		if (shouldShowMessage(m, msg.m_LogFile))
+		if (shouldShowMessage(*msg.m_LogFile, m))
 		{
 			m_MessageRows[newIdx] = msg;
 			newIdx += 1;
@@ -696,10 +671,10 @@ void SessionMessagesModel::reFilter()
 
 
 
-bool SessionMessagesModel::shouldShowMessage(const LogFile::Message & a_Message, const LogFile * a_LogFile)
+bool SessionMessagesModel::shouldShowMessage(const LogFile & a_LogFile, const LogFile::Message & a_Message) const
 {
 	// Check the LogFile against the set of disabled ones:
-	if (m_DisabledLogFiles.find(a_LogFile) != m_DisabledLogFiles.end())
+	if (m_DisabledLogFiles.find(&a_LogFile) != m_DisabledLogFiles.end())
 	{
 		return false;
 	}
@@ -712,16 +687,27 @@ bool SessionMessagesModel::shouldShowMessage(const LogFile::Message & a_Message,
 
 	/*
 	// TODO: Check m_FilterString:
-	if (
-		!m_FilterString.empty() &&
-		!a_Message.m_Text.find(m_FilterString, m_FilterCaseSensitive)
-	)
+	if (!m_FilterString.empty())
 	{
-		return false;
+		if (a_LogFile.getMessageTextString(a_Message).find(m_FilterString))
+		{
+			// Doesn't match m_FilterString, discard:
+			return false;
+		}
 	}
 	*/
 
 	return true;
+}
+
+
+
+
+
+QString SessionMessagesModel::moduleIdentifierToString(const LogFile & a_LogFile, int a_ModuleIdentifier) const
+{
+	auto moduleName = a_LogFile.identifierToModule(a_ModuleIdentifier);
+	return QString::fromStdString(moduleName);
 }
 
 
