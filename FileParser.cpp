@@ -488,6 +488,7 @@ public:
 		{
 			return false;
 		}
+		m_LogFile->tryIdentifySource();
 		emit m_FileParser.finishedParsingFile(m_LogFile);
 		return true;
 	}
