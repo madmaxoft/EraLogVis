@@ -311,7 +311,8 @@ void SessionMessagesModel::setLogFileEnabled(LogFile * a_LogFile, bool a_IsEnabl
 
 void SessionMessagesModel::setFilterString(const QString & a_FilterString)
 {
-	auto requestedFilterString = a_FilterString.toUtf8().toStdString();
+	auto requestedFilterStringBA = a_FilterString.toUtf8();
+	auto requestedFilterString = std::string(requestedFilterStringBA.data(), static_cast<size_t>(requestedFilterStringBA.size()));
 	if (m_FilterString == requestedFilterString)
 	{
 		// Same filter string, NOP

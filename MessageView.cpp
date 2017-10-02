@@ -131,7 +131,7 @@ void MessageView::timerEvent(QTimerEvent * a_Event)
 void MessageView::paintEvent(QPaintEvent * a_Event)
 {
 	// setup temp variables for the painting
-	const bool rightToLeft = isRightToLeft();
+	// const bool rightToLeft = isRightToLeft();
 	QStyleOptionViewItem option = viewOptions();
 
 	QPainter painter(viewport());
@@ -148,7 +148,7 @@ void MessageView::paintEvent(QPaintEvent * a_Event)
 
 	const QRegion region = a_Event->region();
 
-	for (QRect dirtyArea: region)
+	for(QRect dirtyArea: region.rects())
 	{
 		dirtyArea.translate(0, scrollPos);
 		dirtyArea.setBottom(qMin(dirtyArea.bottom(), maxBottom));

@@ -8,9 +8,17 @@
 
 #include "FileParser.h"
 
+#include <assert.h>
 #include <QFile>
 #include <QtDebug>
-#include <QtZlib/zlib.h>
+
+#ifdef _MSC_VER
+	// When compiling in MSVC on Windows, use Qt-provided zlib (there's no system-zlib)
+	#include <QtZlib/zlib.h>
+#else
+	// Use system-zlib everywhere else:
+	#include <zlib.h>
+#endif
 
 #include "Session.h"
 #include "LogFile.h"
@@ -59,7 +67,7 @@ static std::string ungzipString(const void * a_Data, size_t a_DataSize)
 	zlibStream.avail_in = static_cast<uInt>(a_DataSize);
 	while (true)
 	{
-		zlibStream.next_out = reinterpret_cast<z_Bytef *>(buf);
+		zlibStream.next_out = reinterpret_cast<Bytef *>(buf);
 		zlibStream.avail_out = sizeof(buf);
 		zr = inflate(&zlibStream, Z_SYNC_FLUSH);
 		switch (zr)
@@ -443,6 +451,10 @@ protected:
 				{
 					return false;
 				}
+				break;
+			}
+			default:
+			{
 				break;
 			}
 		}
@@ -872,6 +884,10 @@ protected:
 				}
 				break;
 			}
+			default:
+			{
+				break;
+			}
 		}
 		return true;
 	}
@@ -949,7 +965,7 @@ std::function<bool (std::string &&)> FileParser::getFormatHandler(const std::str
 	// Test if most characters within the first 1000 bytes are plain letters / CR / LF / SP / HT
 	size_t numPlainText = 0;
 	auto size = std::min<size_t>(a_Contents.size(), 1000);
-	for (int i = 0; i < size; i++)
+	for (size_t i = 0; i < size; i++)
 	{
 		auto v = a_Contents[i];
 		if (
